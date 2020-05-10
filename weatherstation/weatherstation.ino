@@ -28,9 +28,9 @@ See more at https://thingpulse.com
 #include <Adafruit_Sensor.h>
 #include <Adafruit_BME280.h>
 // time
-#include <time.h>                       // time() ctime()
-#include <sys/time.h>                   // struct timeval
-#include <coredecls.h>                  // settimeofday_cb()
+#include <time.h>      // time() ctime()
+#include <sys/time.h>  // struct timeval
+#include <coredecls.h> // settimeofday_cb()
 //#include "SSD1306Wire.h"
 #include "SH1106Wire.h"
 #include "OLEDDisplayUi.h"
@@ -39,7 +39,6 @@ See more at https://thingpulse.com
 #include "OpenWeatherMapForecast.h"
 #include "WeatherStationFonts.h"
 #include "WeatherStationImages.h"
-
 
 // Create the Lightsensor instance
 #define BME_SCK 13
@@ -54,27 +53,35 @@ Adafruit_BME280 bme; // I2C
  **************************/
 
 // WIFI
-const char* WIFI_SSID = "GotRidOfComcast";
-const char* WIFI_PWD = "theirservicesucked";
+const char *WIFI_SSID = "GotRidOfComcast";
+const char *WIFI_PWD = "theirservicesucked";
 
+//Soil Moisture Sensor
+const int AirValue = 790;   //you need to replace this value with Value_1
+const int WaterValue = 390; //you need to replace this value with Value_2
+const int AnalogSensorPin = A0;
+int soilMoistureValue = 0;
+int soilmoisturepercent = 0;
+
+//Declare Temperature/Humidity
 String humi1;
 String temp1;
-#define TZ              -5       // (utc+) TZ in hours
-#define DST_MN          60      // use 60mn for summer time in some countries
+String pres1; //added this
 
-// Setup
-const int UPDATE_INTERVAL_SECS = 10 * 60; // Update every 20 minutes
-unsigned long delayTime;
+//Timezone Settings
+#define TZ -5     // (utc+) TZ in hours
+#define DST_MN 60 // use 60mn for summer time in some countries
+
 // Display Settings
 const int I2C_DISPLAY_ADDRESS = 0x3c;
 #if defined(ESP8266)
 const int SDA_PIN = D2;
 const int SDC_PIN = D1;
-const int DH1=D5;
+const int DH1 = D5;
 #else
 const int SDA_PIN = 4; //D2;
 const int SDC_PIN = 5; //D1;
-const int DH1=14;
+const int DH1 = 14;
 #endif
 // OpenWeatherMap Settings
 // Sign up here to get an API key:
@@ -98,7 +105,8 @@ String OPEN_WEATHER_MAP_LOCATION_ID = "4255056";
 // Chinese Simplified - zh_cn, Chinese Traditional - zh_tw.
 String OPEN_WEATHER_MAP_LANGUAGE = "en";
 const uint8_t MAX_FORECASTS = 4;
-
+const int UPDATE_INTERVAL_SECS = 10 * 60; // Update every 20 minutes
+unsigned long delayTime;
 const boolean IS_METRIC = false;
 
 // Adjust according to your language
@@ -108,11 +116,11 @@ const String MONTH_NAMES[] = {"JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "
 /***************************
  * End Settings
  **************************/
- // Initialize the oled display for address 0x3c
- // sda-pin=14 and sdc-pin=12
- //SSD1306Wire     display(I2C_DISPLAY_ADDRESS, SDA_PIN, SDC_PIN);
-SH1106Wire  display(I2C_DISPLAY_ADDRESS, SDA_PIN, SDC_PIN);
-OLEDDisplayUi   ui( &display );
+// Initialize the oled display for address 0x3c
+// sda-pin=14 and sdc-pin=12
+//SSD1306Wire     display(I2C_DISPLAY_ADDRESS, SDA_PIN, SDC_PIN);
+SH1106Wire display(I2C_DISPLAY_ADDRESS, SDA_PIN, SDC_PIN);
+OLEDDisplayUi ui(&display);
 
 OpenWeatherMapCurrentData currentWeather;
 OpenWeatherMapCurrent currentWeatherClient;
@@ -120,9 +128,9 @@ OpenWeatherMapCurrent currentWeatherClient;
 OpenWeatherMapForecastData forecasts[MAX_FORECASTS];
 OpenWeatherMapForecast forecastClient;
 
-#define TZ_MN           ((TZ)*60)
-#define TZ_SEC          ((TZ)*3600)
-#define DST_SEC         ((DST_MN)*60)
+#define TZ_MN ((TZ)*60)
+#define TZ_SEC ((TZ)*3600)
+#define DST_SEC ((DST_MN)*60)
 time_t now;
 
 // flag changed in the ticker function every 10 minutes
@@ -135,39 +143,42 @@ long timeSinceLastWUpdate = 0;
 //declaring prototypes
 void drawProgress(OLEDDisplay *display, int percentage, String label);
 void updateData(OLEDDisplay *display);
-void drawBME(OLEDDisplay *display,OLEDDisplayUiState* state,int16_t x, int16_t y);
-void drawDateTime(OLEDDisplay *display, OLEDDisplayUiState* state, int16_t x, int16_t y);
-void drawCurrentWeather(OLEDDisplay *display, OLEDDisplayUiState* state, int16_t x, int16_t y);
-void drawForecast(OLEDDisplay *display, OLEDDisplayUiState* state, int16_t x, int16_t y);
-void drawLightSensor(OLEDDisplay *display, OLEDDisplayUiState* state, int16_t x, int16_t y);
+void drawBME(OLEDDisplay *display, OLEDDisplayUiState *state, int16_t x, int16_t y);
+void drawDateTime(OLEDDisplay *display, OLEDDisplayUiState *state, int16_t x, int16_t y);
+void drawCurrentWeather(OLEDDisplay *display, OLEDDisplayUiState *state, int16_t x, int16_t y);
+void drawForecast(OLEDDisplay *display, OLEDDisplayUiState *state, int16_t x, int16_t y);
+void drawLightSensor(OLEDDisplay *display, OLEDDisplayUiState *state, int16_t x, int16_t y);
+void drawSoilMoistureSensor(OLEDDisplay *display, OLEDDisplayUiState *state, int16_t x, int16_t y);
 void drawForecastDetails(OLEDDisplay *display, int x, int y, int dayIndex);
-void drawHeaderOverlay(OLEDDisplay *display, OLEDDisplayUiState* state);
+void drawHeaderOverlay(OLEDDisplay *display, OLEDDisplayUiState *state);
 void setReadyForWeatherUpdate();
-
 
 // Add frames
 // this array keeps function pointers to all frames
 // frames are the single views that slide from right to left
-FrameCallback frames[] = { drawDateTime, drawCurrentWeather, drawForecast, drawBME, drawLightSensor};
-int numberOfFrames = 5;
+FrameCallback frames[] = {drawDateTime, drawCurrentWeather, drawForecast, drawBME, drawLightSensor, drawSoilMoistureSensor};
+int numberOfFrames = 6;
 
-OverlayCallback overlays[] = { drawHeaderOverlay };
+OverlayCallback overlays[] = {drawHeaderOverlay};
 int numberOfOverlays = 1;
 
-void setup() {
+void setup()
+{
   Serial.begin(115200);
   Serial.println();
   Serial.println(F("BME280 test"));
   bool status;
-  status = bme.begin(0x76);  
-    if (!status) {
-        Serial.println("Could not find a valid BME280 sensor, check wiring!");
-        while (1);
-        Serial.println("-- Default Test --");
+  status = bme.begin(0x76);
+  if (!status)
+  {
+    Serial.println("Could not find a valid BME280 sensor, check wiring!");
+    while (1)
+      ;
+    Serial.println("-- Default Test --");
     delayTime = 1000;
 
     Serial.println();
-    }
+  }
   // initialize dispaly
   display.init();
   display.clear();
@@ -179,7 +190,8 @@ void setup() {
   display.setContrast(255);
   WiFi.begin(WIFI_SSID, WIFI_PWD);
   int counter = 0;
-  while (WiFi.status() != WL_CONNECTED) {
+  while (WiFi.status() != WL_CONNECTED)
+  {
     delay(500);
     Serial.print(".");
     display.clear();
@@ -220,31 +232,34 @@ void setup() {
   Serial.println("");
 
   updateData(&display);
-
 }
 
-void loop() {
-  if (millis() - timeSinceLastWUpdate > (1000L*UPDATE_INTERVAL_SECS)) {
+void loop()
+{
+  if (millis() - timeSinceLastWUpdate > (1000L * UPDATE_INTERVAL_SECS))
+  {
     setReadyForWeatherUpdate();
     timeSinceLastWUpdate = millis();
   }
 
-  if (readyForWeatherUpdate && ui.getUiState()->frameState == FIXED) {
+  if (readyForWeatherUpdate && ui.getUiState()->frameState == FIXED)
+  {
     updateData(&display);
   }
 
   int remainingTimeBudget = ui.update();
 
-  if (remainingTimeBudget > 0) {
+  if (remainingTimeBudget > 0)
+  {
     // You can do some work here
     // Don't do stuff if you are below your
     // time budget.
     delay(remainingTimeBudget);
   }
-
 }
 
-void drawProgress(OLEDDisplay *display, int percentage, String label) {
+void drawProgress(OLEDDisplay *display, int percentage, String label)
+{
   display->clear();
   display->setTextAlignment(TEXT_ALIGN_CENTER);
   display->setFont(ArialMT_Plain_10);
@@ -253,7 +268,8 @@ void drawProgress(OLEDDisplay *display, int percentage, String label) {
   display->display();
 }
 
-void updateData(OLEDDisplay *display) {
+void updateData(OLEDDisplay *display)
+{
   drawProgress(display, 10, "Updating time...");
   drawProgress(display, 30, "Updating weather...");
   currentWeatherClient.setMetric(IS_METRIC);
@@ -271,58 +287,61 @@ void updateData(OLEDDisplay *display) {
   delay(1000);
 }
 
-void drawBME(OLEDDisplay *display,OLEDDisplayUiState* state,int16_t x, int16_t y){
+void drawBME(OLEDDisplay *display, OLEDDisplayUiState *state, int16_t x, int16_t y)
+{
 
- float temp1=(IS_METRIC ? bme.readTemperature() : (1.8 * bme.readTemperature() + 32));
-  float pres1=bme.readPressure()/100.0F;
-  float humi1=bme.readHumidity();
+  float temp1 = (IS_METRIC ? bme.readTemperature() : (1.8 * bme.readTemperature() + 32));
+  float pres1 = bme.readPressure() / 100.0F;
+  float humi1 = bme.readHumidity();
   delay(delayTime);
   display->setTextAlignment(TEXT_ALIGN_CENTER);
   display->setFont(ArialMT_Plain_16);
-  String humi=(IS_METRIC ? "Hum: " : "Hum: ")+String(humi1, 1)+(IS_METRIC ? "%" : "%");
-  display->drawString(64+x, y, humi);
+  String humi = (IS_METRIC ? "Hum: " : "Hum: ") + String(humi1, 1) + (IS_METRIC ? "%" : "%");
+  display->drawString(64 + x, y, humi);
   display->setTextAlignment(TEXT_ALIGN_CENTER);
   display->setFont(ArialMT_Plain_16);
-  String temp=(IS_METRIC ? " Temp: " : "Temp: ")+String(temp1, 1)+(IS_METRIC ? "°C" : "°F");
-  display->drawString(64+x, 15+y, temp);
+  String temp = (IS_METRIC ? " Temp: " : "Temp: ") + String(temp1, 1) + (IS_METRIC ? "°C" : "°F");
+  display->drawString(64 + x, 15 + y, temp);
   display->setTextAlignment(TEXT_ALIGN_CENTER);
   display->setFont(ArialMT_Plain_16);
-  String pres=(IS_METRIC ? " Pres: " : "Pres: ")+String(pres1, 1)+(IS_METRIC ? "hPa" : "hPa");
-  display->drawString(64+x, 30+y, pres);
+  String pres = (IS_METRIC ? " Pres: " : "Pres: ") + String(pres1, 1) + (IS_METRIC ? "hPa" : "hPa");
+  display->drawString(64 + x, 30 + y, pres);
 }
 
-void drawLightSensor(OLEDDisplay *display,OLEDDisplayUiState* state,int16_t x, int16_t y){
-
- float temp1=(IS_METRIC ? bme.readTemperature() : (1.8 * bme.readTemperature() + 32));
-  float pres1=bme.readPressure()/100.0F;
-  float humi1=bme.readHumidity();
+void drawLightSensor(OLEDDisplay *display, OLEDDisplayUiState *state, int16_t x, int16_t y)
+{
+  float light1 = 1.00;
   delay(delayTime);
   display->setTextAlignment(TEXT_ALIGN_CENTER);
   display->setFont(ArialMT_Plain_16);
-  String humi=(IS_METRIC ? "Hum: " : "Hum: ")+String(humi1, 1)+(IS_METRIC ? "%" : "%");
-  display->drawString(64+x, y, humi);
-  display->setTextAlignment(TEXT_ALIGN_CENTER);
-  display->setFont(ArialMT_Plain_16);
-  String temp=(IS_METRIC ? " Temp: " : "Temp: ")+String(temp1, 1)+(IS_METRIC ? "°C" : "°F");
-  display->drawString(64+x, 15+y, temp);
-  display->setTextAlignment(TEXT_ALIGN_CENTER);
-  display->setFont(ArialMT_Plain_16);
-  String pres=(IS_METRIC ? " Pres: " : "Pres: ")+String(pres1, 1)+(IS_METRIC ? "hPa" : "hPa");
-  display->drawString(64+x, 30+y, pres);
+  String light_str = "Light: " + String(light1, 1) + "%";
+  display->drawString(64 + x, y, light_str);
 }
 
-void drawDateTime(OLEDDisplay *display, OLEDDisplayUiState* state, int16_t x, int16_t y) {
+void drawSoilMoistureSensor(OLEDDisplay *display, OLEDDisplayUiState *state, int16_t x, int16_t y)
+{
+  float moisture1 == analogRead(AnalogSensorPin); //put Sensor insert into soil
+  Serial.println(soilMoistureValue);
+  soilmoisturepercent = map(soilMoistureValue, AirValue, WaterValue, 0, 100);
+  delay(delayTime);
+  display->setTextAlignment(TEXT_ALIGN_CENTER);
+  display->setFont(ArialMT_Plain_16);
+  String moist_str = "Moisture: " + String(light1, 1) + "%";
+  display->drawString(64 + x, y, moist_str);
+}
+
+void drawDateTime(OLEDDisplay *display, OLEDDisplayUiState *state, int16_t x, int16_t y)
+{
   now = time(nullptr);
-  struct tm* timeInfo;
+  struct tm *timeInfo;
   timeInfo = localtime(&now);
   char buff[16];
-
 
   display->setTextAlignment(TEXT_ALIGN_CENTER);
   display->setFont(ArialMT_Plain_10);
   String date = WDAY_NAMES[timeInfo->tm_wday];
 
-  sprintf_P(buff, PSTR("%s, %02d/%02d/%04d"), WDAY_NAMES[timeInfo->tm_wday].c_str(), timeInfo->tm_mday, timeInfo->tm_mon+1, timeInfo->tm_year + 1900);
+  sprintf_P(buff, PSTR("%s, %02d/%02d/%04d"), WDAY_NAMES[timeInfo->tm_wday].c_str(), timeInfo->tm_mday, timeInfo->tm_mon + 1, timeInfo->tm_year + 1900);
   display->drawString(64 + x, 5 + y, String(buff));
   display->setFont(ArialMT_Plain_24);
 
@@ -331,7 +350,8 @@ void drawDateTime(OLEDDisplay *display, OLEDDisplayUiState* state, int16_t x, in
   display->setTextAlignment(TEXT_ALIGN_LEFT);
 }
 
-void drawCurrentWeather(OLEDDisplay *display, OLEDDisplayUiState* state, int16_t x, int16_t y) {
+void drawCurrentWeather(OLEDDisplay *display, OLEDDisplayUiState *state, int16_t x, int16_t y)
+{
   display->setFont(ArialMT_Plain_10);
   display->setTextAlignment(TEXT_ALIGN_CENTER);
   display->drawString(64 + x, 38 + y, currentWeather.description);
@@ -346,16 +366,17 @@ void drawCurrentWeather(OLEDDisplay *display, OLEDDisplayUiState* state, int16_t
   display->drawString(32 + x, 0 + y, currentWeather.iconMeteoCon);
 }
 
-
-void drawForecast(OLEDDisplay *display, OLEDDisplayUiState* state, int16_t x, int16_t y) {
+void drawForecast(OLEDDisplay *display, OLEDDisplayUiState *state, int16_t x, int16_t y)
+{
   drawForecastDetails(display, x, y, 0);
   drawForecastDetails(display, x + 44, y, 1);
   drawForecastDetails(display, x + 88, y, 2);
 }
 
-void drawForecastDetails(OLEDDisplay *display, int x, int y, int dayIndex) {
+void drawForecastDetails(OLEDDisplay *display, int x, int y, int dayIndex)
+{
   time_t observationTimestamp = forecasts[dayIndex].observationTime;
-  struct tm* timeInfo;
+  struct tm *timeInfo;
   timeInfo = localtime(&observationTimestamp);
   display->setTextAlignment(TEXT_ALIGN_CENTER);
   display->setFont(ArialMT_Plain_10);
@@ -369,9 +390,10 @@ void drawForecastDetails(OLEDDisplay *display, int x, int y, int dayIndex) {
   display->setTextAlignment(TEXT_ALIGN_LEFT);
 }
 
-void drawHeaderOverlay(OLEDDisplay *display, OLEDDisplayUiState* state) {
+void drawHeaderOverlay(OLEDDisplay *display, OLEDDisplayUiState *state)
+{
   now = time(nullptr);
-  struct tm* timeInfo;
+  struct tm *timeInfo;
   timeInfo = localtime(&now);
   char buff[14];
   sprintf_P(buff, PSTR("%02d:%02d"), timeInfo->tm_hour, timeInfo->tm_min);
@@ -386,7 +408,8 @@ void drawHeaderOverlay(OLEDDisplay *display, OLEDDisplayUiState* state) {
   display->drawHorizontalLine(0, 52, 128);
 }
 
-void setReadyForWeatherUpdate() {
+void setReadyForWeatherUpdate()
+{
   Serial.println("Setting readyForUpdate to true");
   readyForWeatherUpdate = true;
 }
