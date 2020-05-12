@@ -57,11 +57,12 @@ const char *WIFI_SSID = "GotRidOfComcast";
 const char *WIFI_PWD = "theirservicesucked";
 
 //Soil Moisture Sensor
-const int AirValue = 790;   //you need to replace this value with Value_1
-const int WaterValue = 390; //you need to replace this value with Value_2
-const int AnalogSensorPin = A0;
+const int ANALOG_PIN = A0;
+const int AirValue = 790;   //Moisture1 Air Value
+const int WaterValue = 480; //Moisture1 Water Value
 int soilMoistureValue = 0;
 int soilmoisturepercent = 0;
+String percent_str = "N/A";
 
 //Declare Temperature/Humidity
 String humi1;
@@ -77,12 +78,17 @@ const int I2C_DISPLAY_ADDRESS = 0x3c;
 #if defined(ESP8266)
 const int SDA_PIN = D2;
 const int SDC_PIN = D1;
-const int DH1 = D5;
+const int MOISTURE_PIN_1 = D5;
+const int MOISTURE_PIN_2 = D6;
+const int RELAY_PIN = D7;
 #else
 const int SDA_PIN = 4; //D2;
 const int SDC_PIN = 5; //D1;
-const int DH1 = 14;
+const int MOISTURE_PIN_1 = 14; //D5
+const int MOISTURE_PIN_2 = 12;  //D6
+const int RELAY_PIN = 13; //D7
 #endif
+
 // OpenWeatherMap Settings
 // Sign up here to get an API key:
 // https://docs.thingpulse.com/how-tos/openweathermap-key/
@@ -148,7 +154,8 @@ void drawDateTime(OLEDDisplay *display, OLEDDisplayUiState *state, int16_t x, in
 void drawCurrentWeather(OLEDDisplay *display, OLEDDisplayUiState *state, int16_t x, int16_t y);
 void drawForecast(OLEDDisplay *display, OLEDDisplayUiState *state, int16_t x, int16_t y);
 void drawLightSensor(OLEDDisplay *display, OLEDDisplayUiState *state, int16_t x, int16_t y);
-void drawSoilMoistureSensor(OLEDDisplay *display, OLEDDisplayUiState *state, int16_t x, int16_t y);
+void drawSoilMoistureSensorOne(OLEDDisplay *display, OLEDDisplayUiState *state, int16_t x, int16_t y);
+void drawSoilMoistureSensorTwo(OLEDDisplay *display, OLEDDisplayUiState *state, int16_t x, int16_t y);
 void drawForecastDetails(OLEDDisplay *display, int x, int y, int dayIndex);
 void drawHeaderOverlay(OLEDDisplay *display, OLEDDisplayUiState *state);
 void setReadyForWeatherUpdate();
@@ -156,8 +163,8 @@ void setReadyForWeatherUpdate();
 // Add frames
 // this array keeps function pointers to all frames
 // frames are the single views that slide from right to left
-FrameCallback frames[] = {drawDateTime, drawCurrentWeather, drawForecast, drawBME, drawLightSensor, drawSoilMoistureSensor};
-int numberOfFrames = 6;
+FrameCallback frames[] = {drawDateTime, drawCurrentWeather, drawForecast, drawBME, drawLightSensor, drawSoilMoistureSensorOne, drawSoilMoistureSensorTwo};
+int numberOfFrames = 7;
 
 OverlayCallback overlays[] = {drawHeaderOverlay};
 int numberOfOverlays = 1;
@@ -165,6 +172,16 @@ int numberOfOverlays = 1;
 void setup()
 {
   Serial.begin(115200);
+  
+  //Set Pin I/O
+  pinMode(MOISTURE_PIN_1, OUTPUT);
+  pinMode(MOISTURE_PIN_2, OUTPUT);
+  pinMode(RELAY_PIN, OUTPUT);
+
+  digitalWrite(MOISTURE_PIN_1, 0);
+  digitalWrite(MOISTURE_PIN_2, 0);
+  digitalWrite(RELAY_PIN, 0);
+  
   Serial.println();
   Serial.println(F("BME280 test"));
   bool status;
@@ -318,15 +335,62 @@ void drawLightSensor(OLEDDisplay *display, OLEDDisplayUiState *state, int16_t x,
   display->drawString(64 + x, y, light_str);
 }
 
-void drawSoilMoistureSensor(OLEDDisplay *display, OLEDDisplayUiState *state, int16_t x, int16_t y)
+void drawSoilMoistureSensorOne(OLEDDisplay *display, OLEDDisplayUiState *state, int16_t x, int16_t y)
 {
-  float moisture1 == analogRead(AnalogSensorPin); //put Sensor insert into soil
-  Serial.println(soilMoistureValue);
+  //Turn off the other Analog Devices to read this one
+  digitalWrite(MOISTURE_PIN_2, 0);
+  digitalWrite(MOISTURE_PIN_1, 1);
+  Serial.println(String(MOISTURE_PIN_1, 1) + ": ON");
+  float soilMoistureValue = analogRead(ANALOG_PIN); //put Sensor insert into soil
+  Serial.println("Moisture 1: " + String(soilMoistureValue, 1));
   soilmoisturepercent = map(soilMoistureValue, AirValue, WaterValue, 0, 100);
+  Serial.println(soilmoisturepercent);
+  if(soilmoisturepercent > 100)
+  {
+    percent_str = "100%";
+  }
+  else if(soilmoisturepercent <0)
+  {
+    percent_str = "0%";
+  }
+  else if(soilmoisturepercent >0 && soilmoisturepercent < 100)
+  {
+    percent_str = String(soilmoisturepercent) + "%";
+  }
   delay(delayTime);
   display->setTextAlignment(TEXT_ALIGN_CENTER);
   display->setFont(ArialMT_Plain_16);
-  String moist_str = "Moisture: " + String(light1, 1) + "%";
+  String moist_str = "Moist1: " + percent_str;
+  display->drawString(64 + x, y, moist_str);
+}
+
+//IGNORE THIS COMPLETE COPY/PASTE INSTEAD OF A NEW METHOD
+void drawSoilMoistureSensorTwo(OLEDDisplay *display, OLEDDisplayUiState *state, int16_t x, int16_t y)
+{
+  //Turn off the other Analog Devices to read this one
+  digitalWrite(MOISTURE_PIN_1, 0);
+  digitalWrite(MOISTURE_PIN_2, 1);
+  Serial.println(String(MOISTURE_PIN_2, 1) + ": ON");
+  float soilMoistureValue = analogRead(ANALOG_PIN); //put Sensor insert into soil
+  Serial.println("Moisture 2: " + String(soilMoistureValue, 1));
+  soilmoisturepercent = map(soilMoistureValue, AirValue, WaterValue, 0, 100);
+  Serial.println(soilmoisturepercent);
+  if(soilmoisturepercent > 100)
+  {
+    percent_str = "100%";
+  }
+  else if(soilmoisturepercent <0)
+  {
+    percent_str = "0%";
+  }
+  else if(soilmoisturepercent >0 && soilmoisturepercent < 100)
+  {
+    percent_str = String(soilmoisturepercent) + "%";
+  }
+  delay(delayTime);
+  display->setTextAlignment(TEXT_ALIGN_CENTER);
+  display->setFont(ArialMT_Plain_16);
+  String moist_str = "Moist2: " + percent_str;
   display->drawString(64 + x, y, moist_str);
 }
 
