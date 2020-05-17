@@ -39,6 +39,7 @@ See more at https://thingpulse.com
 #include "OpenWeatherMapForecast.h"
 #include "WeatherStationFonts.h"
 #include "WeatherStationImages.h"
+#include "EncodeString.h"
 
 // Create the Lightsensor instance
 #define BME_SCK 13
@@ -56,6 +57,13 @@ Adafruit_BME280 bme; // I2C
 const char *WIFI_SSID = "GotRidOfComcast";
 const char *WIFI_PWD = "theirservicesucked";
 
+//Database settings
+HTTPClient http;
+String DB_IP = "10.0.0.215";
+String DB_PORT = ":8086";
+String DB_NAME = "garden";
+String INFLUX_WRITE_URI = "http://" + DB_IP + DB_PORT + "/write?db=" + DB_NAME;
+
 //Soil Moisture Sensor
 const int ANALOG_PIN = A0;
 const int AirValue = 790;   //Moisture1 Air Value
@@ -68,6 +76,9 @@ String percent_str = "N/A";
 String humi1;
 String temp1;
 String pres1; //added this
+
+//Measurements
+const String MEASUREMENTS[] = {""};
 
 //Timezone Settings
 #define TZ -5     // (utc+) TZ in hours
@@ -271,7 +282,25 @@ void loop()
     // You can do some work here
     // Don't do stuff if you are below your
     // time budget.
+    insertMeasurement("temperature", "garduino", "raised_bed_1", "1","bme280","digital",temp1);
     delay(remainingTimeBudget);
+  }
+}
+
+void insertMeasurement(measurement, source, garden, sensor, type, signal, value){
+  http.begin(INFLUX_WRITE_URI);
+  http.addHeader("Accept","application/json");
+  http.addHeader("Content-Type","text/plain");
+  String body = measurement+",source="+source+",garden="+garden+",sensor="+sensor+",type="+type+",signal="+signal+" value="+value; 
+
+  int httpCode = http.POST(body);
+
+  if(httpCode != 204){
+    //Something failed..
+    Serial.println("HTTP Code was not '204'.. It was: " + httpCode);
+  }else{
+    //Something didn't fail..
+    Serial.println("[httpCode]: " + httpCode);
   }
 }
 
