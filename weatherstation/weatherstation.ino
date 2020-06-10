@@ -39,7 +39,7 @@ See more at https://thingpulse.com
 #include "OpenWeatherMapForecast.h"
 #include "WeatherStationFonts.h"
 #include "WeatherStationImages.h"
-#include "EncodeString.h"
+//#include "EncodeString.h"
 
 // Create the Lightsensor instance
 #define BME_SCK 13
@@ -53,29 +53,47 @@ Adafruit_BME280 bme; // I2C
  * Begin Settings
  **************************/
 
-// WIFI
+// WIFI Settings
 const char *WIFI_SSID = "GotRidOfComcast";
 const char *WIFI_PWD = "theirservicesucked";
 
-//Database settings
+//DB SETTINGS
 HTTPClient http;
 String DB_IP = "10.0.0.215";
 String DB_PORT = ":8086";
 String DB_NAME = "garden";
 String INFLUX_WRITE_URI = "http://" + DB_IP + DB_PORT + "/write?db=" + DB_NAME;
+const int UPDATE_DB_INTERVAL_SECS = 20; //Update every minute
+long timeSinceLastDBUpdate = 0;
+// flag changed in the ticker function every 10 minutes
+bool readyForDBUpdate = false;
+//END DB SETTINGS
+
+String measurement = "";
+String source = "garduino";
+String garden = "raised_bed_1";
+String sensor = "";
+String type = "";
+String signal_type = "";
+float value = 0.00;
 
 //Soil Moisture Sensor
 const int ANALOG_PIN = A0;
-const int AirValue = 790;   //Moisture1 Air Value
-const int WaterValue = 480; //Moisture1 Water Value
-int soilMoistureValue = 0;
-int soilmoisturepercent = 0;
+const int AirValue1 = 795;   //Moisture1 Air Value
+const int WaterValue1 = 480; //Moisture1 Water Value
+const int AirValue2 = 810;   //Moisture2 Air Value
+const int WaterValue2 = 480; //Moisture2 Water Value
+float soilMoistureValue1 = 0;
+float soilMoistureValue2 = 0;
+float soilmoisturepercent1 = 0;
+float soilmoisturepercent2 = 0;
 String percent_str = "N/A";
 
 //Declare Temperature/Humidity
-String humi1;
-String temp1;
-String pres1; //added this
+float humi1;
+float temp1;
+float pres;
+float pres1; //added this
 
 //Measurements
 const String MEASUREMENTS[] = {""};
@@ -122,7 +140,7 @@ String OPEN_WEATHER_MAP_LOCATION_ID = "4255056";
 // Chinese Simplified - zh_cn, Chinese Traditional - zh_tw.
 String OPEN_WEATHER_MAP_LANGUAGE = "en";
 const uint8_t MAX_FORECASTS = 4;
-const int UPDATE_INTERVAL_SECS = 10 * 60; // Update every 20 minutes
+const int UPDATE_INTERVAL_SECS = 10 * 60; // Update every 10 minutes
 unsigned long delayTime;
 const boolean IS_METRIC = false;
 
@@ -159,6 +177,7 @@ long timeSinceLastWUpdate = 0;
 
 //declaring prototypes
 void drawProgress(OLEDDisplay *display, int percentage, String label);
+void insertMeasurement(String measurement, String source, String garden, String sensor, String type, String signal_type, float value);
 void updateData(OLEDDisplay *display);
 void drawBME(OLEDDisplay *display, OLEDDisplayUiState *state, int16_t x, int16_t y);
 void drawDateTime(OLEDDisplay *display, OLEDDisplayUiState *state, int16_t x, int16_t y);
@@ -170,6 +189,7 @@ void drawSoilMoistureSensorTwo(OLEDDisplay *display, OLEDDisplayUiState *state, 
 void drawForecastDetails(OLEDDisplay *display, int x, int y, int dayIndex);
 void drawHeaderOverlay(OLEDDisplay *display, OLEDDisplayUiState *state);
 void setReadyForWeatherUpdate();
+void setReadyForDBUpdate();
 
 // Add frames
 // this array keeps function pointers to all frames
@@ -269,10 +289,31 @@ void loop()
     setReadyForWeatherUpdate();
     timeSinceLastWUpdate = millis();
   }
-
+  
   if (readyForWeatherUpdate && ui.getUiState()->frameState == FIXED)
   {
     updateData(&display);
+  }
+
+  if (millis() - timeSinceLastDBUpdate > (1000L * UPDATE_DB_INTERVAL_SECS))
+  {
+    setReadyForDBUpdate();
+    timeSinceLastDBUpdate = millis();
+  }
+  
+  if (readyForDBUpdate && ui.getUiState()->frameState == FIXED)
+  {
+    Serial.println("Updating the database...");
+    
+    //Update the DB
+    insertMeasurement("temperature", source, garden, "1","bme280","digital",temp1);
+    insertMeasurement("humidity", source, garden, "1","bme280","digital",humi1);
+    insertMeasurement("pressure", source, garden, "1","bme280","digital",pres1);
+    insertMeasurement("soil_moisture", source, garden, "1","ek1940","analog",soilmoisturepercent1);
+    insertMeasurement("soil_moisture", source, garden, "2","ek1940","analog",soilmoisturepercent2);
+    
+    //Set readyForDBUpdate back to false
+    readyForDBUpdate = false;
   }
 
   int remainingTimeBudget = ui.update();
@@ -282,25 +323,32 @@ void loop()
     // You can do some work here
     // Don't do stuff if you are below your
     // time budget.
-    insertMeasurement("temperature", "garduino", "raised_bed_1", "1","bme280","digital",temp1);
     delay(remainingTimeBudget);
   }
 }
 
-void insertMeasurement(measurement, source, garden, sensor, type, signal, value){
-  http.begin(INFLUX_WRITE_URI);
-  http.addHeader("Accept","application/json");
-  http.addHeader("Content-Type","text/plain");
-  String body = measurement+",source="+source+",garden="+garden+",sensor="+sensor+",type="+type+",signal="+signal+" value="+value; 
-
-  int httpCode = http.POST(body);
-
-  if(httpCode != 204){
-    //Something failed..
-    Serial.println("HTTP Code was not '204'.. It was: " + httpCode);
+void insertMeasurement(String measurement, String source, String garden, String sensor, String type, String signal_type, float value)
+{
+  //Serial.println("[value]: " + String(value));
+  if(value != 0.00)
+  {
+    http.begin(INFLUX_WRITE_URI);
+    http.addHeader("Accept","application/json");
+    http.addHeader("Content-Type","text/plain");
+    String body = measurement+",source="+source+",garden="+garden+",sensor="+sensor+",type="+type+",signal="+signal_type+" value="+String(value); 
+    Serial.println("POSTING: " + body);
+  
+    int httpCode = http.POST(body);
+  
+    if(httpCode != 204){
+      //Something failed..
+      Serial.println("HTTP Code was not '204'.. It was: " + httpCode);
+    }else{
+      //Something didn't fail..
+      Serial.println("[httpCode]: " + httpCode);
+    }
   }else{
-    //Something didn't fail..
-    Serial.println("[httpCode]: " + httpCode);
+    //Serial.println("value=" + String(value));
   }
 }
 
@@ -336,9 +384,10 @@ void updateData(OLEDDisplay *display)
 void drawBME(OLEDDisplay *display, OLEDDisplayUiState *state, int16_t x, int16_t y)
 {
 
-  float temp1 = (IS_METRIC ? bme.readTemperature() : (1.8 * bme.readTemperature() + 32));
-  float pres1 = bme.readPressure() / 100.0F;
-  float humi1 = bme.readHumidity();
+  temp1 = (IS_METRIC ? bme.readTemperature() : (1.8 * bme.readTemperature() + 32));
+  pres = bme.readPressure() / 100.0F;
+  pres1 = (IS_METRIC ? pres : (pres * 0.0002953));
+  humi1 = bme.readHumidity();
   delay(delayTime);
   display->setTextAlignment(TEXT_ALIGN_CENTER);
   display->setFont(ArialMT_Plain_16);
@@ -346,11 +395,11 @@ void drawBME(OLEDDisplay *display, OLEDDisplayUiState *state, int16_t x, int16_t
   display->drawString(64 + x, y, humi);
   display->setTextAlignment(TEXT_ALIGN_CENTER);
   display->setFont(ArialMT_Plain_16);
-  String temp = (IS_METRIC ? " Temp: " : "Temp: ") + String(temp1, 1) + (IS_METRIC ? "°C" : "°F");
+  String temp = "Temp: " + String(temp1, 1) + (IS_METRIC ? "°C" : "°F");
   display->drawString(64 + x, 15 + y, temp);
   display->setTextAlignment(TEXT_ALIGN_CENTER);
   display->setFont(ArialMT_Plain_16);
-  String pres = (IS_METRIC ? " Pres: " : "Pres: ") + String(pres1, 1) + (IS_METRIC ? "hPa" : "hPa");
+  String pres = "Pres: " + String(pres1, 1) + (IS_METRIC ? "hPa" : "inHG");
   display->drawString(64 + x, 30 + y, pres);
 }
 
@@ -369,22 +418,22 @@ void drawSoilMoistureSensorOne(OLEDDisplay *display, OLEDDisplayUiState *state, 
   //Turn off the other Analog Devices to read this one
   digitalWrite(MOISTURE_PIN_2, 0);
   digitalWrite(MOISTURE_PIN_1, 1);
-  Serial.println(String(MOISTURE_PIN_1, 1) + ": ON");
-  float soilMoistureValue = analogRead(ANALOG_PIN); //put Sensor insert into soil
-  Serial.println("Moisture 1: " + String(soilMoistureValue, 1));
-  soilmoisturepercent = map(soilMoistureValue, AirValue, WaterValue, 0, 100);
-  Serial.println(soilmoisturepercent);
-  if(soilmoisturepercent > 100)
+  //Serial.println(String(MOISTURE_PIN_1, 1) + ": ON");
+  soilMoistureValue1 = analogRead(ANALOG_PIN); //put Sensor insert into soil
+  //Serial.println("Moisture 1: " + String(soilMoistureValue1, 1));
+  soilmoisturepercent1 = map(soilMoistureValue1, AirValue1, WaterValue1, 0.00, 100.00);
+  Serial.println(soilmoisturepercent1);
+  if(soilmoisturepercent1 > 100)
   {
     percent_str = "100%";
   }
-  else if(soilmoisturepercent <0)
+  else if(soilmoisturepercent1 <0)
   {
     percent_str = "0%";
   }
-  else if(soilmoisturepercent >0 && soilmoisturepercent < 100)
+  else if(soilmoisturepercent1 >0 && soilmoisturepercent1 < 100)
   {
-    percent_str = String(soilmoisturepercent) + "%";
+    percent_str = String(soilmoisturepercent1) + "%";
   }
   delay(delayTime);
   display->setTextAlignment(TEXT_ALIGN_CENTER);
@@ -399,22 +448,22 @@ void drawSoilMoistureSensorTwo(OLEDDisplay *display, OLEDDisplayUiState *state, 
   //Turn off the other Analog Devices to read this one
   digitalWrite(MOISTURE_PIN_1, 0);
   digitalWrite(MOISTURE_PIN_2, 1);
-  Serial.println(String(MOISTURE_PIN_2, 1) + ": ON");
-  float soilMoistureValue = analogRead(ANALOG_PIN); //put Sensor insert into soil
-  Serial.println("Moisture 2: " + String(soilMoistureValue, 1));
-  soilmoisturepercent = map(soilMoistureValue, AirValue, WaterValue, 0, 100);
-  Serial.println(soilmoisturepercent);
-  if(soilmoisturepercent > 100)
+  //Serial.println(String(MOISTURE_PIN_2, 1) + ": ON");
+  soilMoistureValue2 = analogRead(ANALOG_PIN); //put Sensor insert into soil
+  //Serial.println("Moisture 2: " + String(soilMoistureValue2, 1));
+  soilmoisturepercent2 = map(soilMoistureValue2, AirValue2, WaterValue2, 0.00, 100.00);
+  Serial.println(soilmoisturepercent2);
+  if(soilmoisturepercent2 > 100)
   {
     percent_str = "100%";
   }
-  else if(soilmoisturepercent <0)
+  else if(soilmoisturepercent2 <0)
   {
     percent_str = "0%";
   }
-  else if(soilmoisturepercent >0 && soilmoisturepercent < 100)
+  else if(soilmoisturepercent2 >0 && soilmoisturepercent2 < 100)
   {
-    percent_str = String(soilmoisturepercent) + "%";
+    percent_str = String(soilmoisturepercent2) + "%";
   }
   delay(delayTime);
   display->setTextAlignment(TEXT_ALIGN_CENTER);
@@ -499,6 +548,12 @@ void drawHeaderOverlay(OLEDDisplay *display, OLEDDisplayUiState *state)
   String temp = String(currentWeather.temp, 1) + (IS_METRIC ? "°C" : "°F");
   display->drawString(128, 54, temp);
   display->drawHorizontalLine(0, 52, 128);
+}
+
+void setReadyForDBUpdate()
+{
+  Serial.println("Setting readyForDBUpdate to true");
+  readyForDBUpdate = true;
 }
 
 void setReadyForWeatherUpdate()
